@@ -8,7 +8,11 @@
   "author": "",
   "license": "ISC",
   "workspaces": [
+    "apps/api",
     "packages/contracts",
     "packages/shared"
-  ]
+  ],
+  "overrides": {
+    "multer": "2.5.0"
+  }
 }
