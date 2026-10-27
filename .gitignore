@@ -33,3 +33,6 @@ crash.log
 # Credentials
 *.pem
 *.key
+
+# TypeScript build cache
+*.tsbuildinfo
