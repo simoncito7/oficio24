@@ -120,6 +120,7 @@ model User {
   serviceRequests     ServiceRequest[]
   reviewsWritten      Review[]
   notifications       Notification[]
+  sentMessages        Message[]
 }
 
 // -------------------------
@@ -173,6 +174,7 @@ model ProfessionalProfile {
   assignments           ServiceAssignment[]
   professionalDocuments ProfessionalDocument[]
   reviewsReceived       Review[]
+  conversations         Conversation[]
 
   @@index([approvalStatus])
 }
@@ -234,6 +236,7 @@ model ServiceRequest {
   proposals                 Proposal[]
   assignments               ServiceAssignment[]
   serviceRequestAttachments ServiceRequestAttachment[]
+  conversations             Conversation[]
 
   @@index([customerId, status])
   @@index([tradeId, status])
@@ -392,4 +395,40 @@ model Notification {
   user User @relation(fields: [userId], references: [id])
 
   @@index([userId, readAt, createdAt])
+}
+
+// -------------------------
+// CONVERSATION / MESSAGE
+// -------------------------
+
+model Conversation {
+  id             String @id @default(uuid())
+  requestId      String
+  professionalId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request      ServiceRequest      @relation(fields: [requestId], references: [id])
+  professional ProfessionalProfile @relation(fields: [professionalId], references: [id])
+  messages     Message[]
+
+  @@unique([requestId, professionalId])
+  @@index([professionalId, updatedAt])
+}
+
+model Message {
+  id             String @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String @db.Text
+
+  createdAt DateTime  @default(now())
+  // When the other participant read this message.
+  readAt    DateTime?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+  sender       User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
 }
