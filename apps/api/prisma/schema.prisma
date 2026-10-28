@@ -40,6 +40,62 @@ enum TradeApprovalStatus {
   SUSPENDED
 }
 
+enum ServiceRequestStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  AWAITING_CUSTOMER_DECISION
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum ServiceUrgency {
+  IMMEDIATE
+  WITHIN_24_HOURS
+  SCHEDULED
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum CancellationInitiator {
+  CUSTOMER
+  PROFESSIONAL
+  ADMIN
+}
+
+enum ProfessionalDocumentType {
+  IDENTITY
+  QUALIFICATION
+  PROFESSIONAL_LICENSE
+  CERTIFICATION
+  OTHER
+}
+
+enum NotificationType {
+  NEW_SERVICE_OPPORTUNITY
+  PROPOSAL_RECEIVED
+  PROPOSAL_ACCEPTED
+  PROPOSAL_REJECTED
+  ASSIGNMENT_CANCELLED
+  SERVICE_COMPLETED
+  VERIFICATION_APPROVED
+  VERIFICATION_REJECTED
+}
+
 // -------------------------
 // USER
 // -------------------------
@@ -61,9 +117,9 @@ model User {
   professionalProfile ProfessionalProfile?  @relation("ProfessionalOwner")
   reviewedProfiles    ProfessionalProfile[] @relation("ProfessionalReviewer")
   reviewedTrades      ProfessionalTrade[]   @relation("TradeReviewer")
-
-  // Added in Step 4.3.2:
-  // serviceRequests ServiceRequest[]
+  serviceRequests     ServiceRequest[]
+  reviewsWritten      Review[]
+  notifications       Notification[]
 }
 
 // -------------------------
@@ -112,9 +168,30 @@ model ProfessionalProfile {
   user       User  @relation("ProfessionalOwner", fields: [userId], references: [id])
   reviewedBy User? @relation("ProfessionalReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
-  trades ProfessionalTrade[]
+  trades                ProfessionalTrade[]
+  proposals             Proposal[]
+  assignments           ServiceAssignment[]
+  professionalDocuments ProfessionalDocument[]
+  reviewsReceived       Review[]
 
   @@index([approvalStatus])
+}
+
+model ProfessionalDocument {
+  id             String                   @id @default(uuid())
+  professionalId String
+  type           ProfessionalDocumentType
+
+  storageKey  String @unique
+  fileName    String
+  contentType String
+  sizeBytes   Int
+
+  uploadedAt DateTime @default(now())
+
+  professional ProfessionalProfile @relation(fields: [professionalId], references: [id])
+
+  @@index([professionalId, type])
 }
 
 // -------------------------
@@ -127,10 +204,91 @@ model Trade {
   description String?
   isActive    Boolean @default(true)
 
-  professionals ProfessionalTrade[]
+  professionals   ProfessionalTrade[]
+  serviceRequests ServiceRequest[]
+}
 
-  // Added in Step 4.3.2:
-  // serviceRequests ServiceRequest[]
+model ServiceRequest {
+  id         String               @id @default(uuid())
+  customerId String
+  tradeId    String
+  status     ServiceRequestStatus @default(OPEN)
+  urgency    ServiceUrgency
+
+  description String @db.Text
+
+  address      String
+  crossStreets String?
+  scheduledAt  DateTime?
+
+  currentRound Int @default(1)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  customer User  @relation(fields: [customerId], references: [id])
+  trade    Trade @relation(fields: [tradeId], references: [id])
+
+  proposals                 Proposal[]
+  assignments               ServiceAssignment[]
+  serviceRequestAttachments ServiceRequestAttachment[]
+
+  @@index([customerId, status])
+  @@index([tradeId, status])
+  @@index([status, createdAt])
+}
+
+model ServiceAssignment {
+  id             String           @id @default(uuid())
+  requestId      String
+  proposalId     String           @unique
+  professionalId String
+  status         AssignmentStatus @default(ACTIVE)
+
+  // Confirmed appointment window
+  scheduledStartAt DateTime?
+  scheduledEndAt   DateTime?
+
+  // Lifecycle timestamps
+  assignedAt  DateTime  @default(now())
+  startedAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+
+  // Cancellation details
+  cancelledBy        CancellationInitiator?
+  cancellationReason String?                @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  request      ServiceRequest      @relation(fields: [requestId], references: [id])
+  proposal     Proposal            @relation(fields: [proposalId], references: [id])
+  professional ProfessionalProfile @relation(fields: [professionalId], references: [id])
+
+  review Review?
+
+  @@index([requestId, status])
+  @@index([professionalId, status])
+  @@index([professionalId, scheduledStartAt, scheduledEndAt])
+}
+
+model ServiceRequestAttachment {
+  id        String @id @default(uuid())
+  requestId String
+
+  storageKey  String @unique
+  fileName    String
+  contentType String
+  sizeBytes   Int
+
+  createdAt DateTime @default(now())
+
+  request ServiceRequest @relation(fields: [requestId], references: [id])
+
+  @@index([requestId])
 }
 
 // -------------------------
@@ -156,4 +314,82 @@ model ProfessionalTrade {
 
   @@id([professionalId, tradeId])
   @@index([tradeId, approvalStatus])
+}
+
+// -------------------------
+// PROPOSAL
+// -------------------------
+
+model Proposal {
+  id             String         @id @default(uuid())
+  requestId      String
+  professionalId String
+  round          Int
+  status         ProposalStatus @default(PENDING)
+
+  estimatedPrice     Decimal   @db.Decimal(12, 2)
+  currency           String    @default("ARS") @db.VarChar(3)
+  estimatedArrivalAt DateTime?
+  message            String?   @db.Text
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  decidedAt DateTime?
+
+  request      ServiceRequest      @relation(fields: [requestId], references: [id])
+  professional ProfessionalProfile @relation(fields: [professionalId], references: [id])
+
+  assignment ServiceAssignment?
+
+  @@unique([requestId, round, professionalId])
+  @@index([requestId, round, status])
+  @@index([professionalId, status])
+}
+
+// -------------------------
+// REVIEW
+// -------------------------
+
+model Review {
+  id             String @id @default(uuid())
+  assignmentId   String @unique
+  customerId     String
+  professionalId String
+
+  // Add in a future migration: CHECK ("rating" BETWEEN 1 AND 5).
+  rating  Int
+  comment String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignment   ServiceAssignment   @relation(fields: [assignmentId], references: [id])
+  customer     User                @relation(fields: [customerId], references: [id])
+  professional ProfessionalProfile @relation(fields: [professionalId], references: [id])
+
+  @@index([professionalId, createdAt])
+}
+
+// -------------------------
+// NOTIFICATION
+// -------------------------
+
+// Informational records; future asynchronous creation/delivery uses a Transactional Outbox.
+// Notification creation must not determine marketplace transaction success.
+model Notification {
+  id      String           @id @default(uuid())
+  userId  String
+  type    NotificationType
+  title   String
+  message String
+
+  // Only non-sensitive event references or presentation data; never documents, passwords, or tokens.
+  metadata  Json?
+  // Null indicates an unread notification.
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt, createdAt])
 }
