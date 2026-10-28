@@ -36,3 +36,12 @@ crash.log
 
 # TypeScript build cache
 *.tsbuildinfo
+
+# Prisma generated client
+apps/api/src/generated/prisma/
+
+# Local AI tooling (if not intentionally shared)
+apps/api/.agents/
+apps/api/.claude/
+apps/api/.windsurf/
+apps/api/skills-lock.json
